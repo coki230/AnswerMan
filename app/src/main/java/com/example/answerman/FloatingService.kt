@@ -307,7 +307,7 @@ class FloatingService : Service() {
                 val bytes = outputStream.toByteArray()
                 val base64Data = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
 
-                val apiKey = "AIzaSyDYFkrxsImXsO6GKBQITnAyJW_Le6m5iyM"
+                val apiKey = "key"
                 val urlStr = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=$apiKey"
 
                 val jsonRequestBody = """
