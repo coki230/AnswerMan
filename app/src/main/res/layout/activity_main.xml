@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
-    android:layout_height="wrap_content">
+    android:layout_height="match_parent">
 
     <FrameLayout
         android:id="@+id/layoutBall"
@@ -38,12 +38,12 @@
             android:background="#11FFFFFF"
             android:layout_marginBottom="8dp"
             android:orientation="vertical">
-
             <View
                 android:layout_width="40dp"
                 android:layout_height="4dp"
                 android:background="#88FFFFFF" />
         </LinearLayout>
+
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -55,31 +55,46 @@
                 android:id="@+id/btnCaptureAndUpload"
                 android:layout_width="0dp"
                 android:layout_height="52dp"
-                android:layout_weight="1"
+                android:layout_weight="1.2"
                 android:backgroundTint="#FF4081"
-                android:text="📸 立即截屏解析"
+                android:text="📸 立即截屏"
                 android:textColor="#FFFFFF"
-                android:textSize="15sp"
+                android:textSize="14sp"
                 android:textStyle="bold" />
 
             <Button
                 android:id="@+id/btnMinimize"
-                android:layout_width="wrap_content"
+                android:layout_width="0dp"
                 android:layout_height="52dp"
-                android:layout_marginStart="8dp"
+                android:layout_weight="0.8"
+                android:layout_marginStart="4dp"
                 android:backgroundTint="#607D8B"
                 android:text="➖ 收起"
-                android:textColor="#FFFFFF" />
+                android:textColor="#FFFFFF"
+                android:textSize="13sp" />
+
+            <Button
+                android:id="@+id/btnPreviewCapture"
+                android:layout_width="0dp"
+                android:layout_height="52dp"
+                android:layout_weight="0.9"
+                android:layout_marginStart="4dp"
+                android:text="🖼️ 预览"
+                android:backgroundTint="#FF9800"
+                android:textColor="#FFFFFF"
+                android:textSize="13sp" />
 
             <Button
                 android:id="@+id/btnCloseFloat"
-                android:layout_width="wrap_content"
+                android:layout_width="0dp"
                 android:layout_height="52dp"
-                android:layout_marginStart="8dp"
+                android:layout_weight="0.8"
+                android:layout_marginStart="4dp"
                 android:backgroundTint="#FF5722"
                 android:text="❌ 退出"
                 android:textColor="#FFFFFF"
-                android:textStyle="bold" />
+                android:textStyle="bold"
+                android:textSize="13sp" />
         </LinearLayout>
 
         <ScrollView
@@ -97,10 +112,57 @@
                 android:id="@+id/tvResultDisplay"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="请点击左侧按钮开始截图..."
+                android:text="请点击按钮开始截图..."
                 android:textColor="#FFFFFF"
                 android:textSize="14sp"
                 android:lineSpacingMultiplier="1.2" />
         </ScrollView>
     </LinearLayout>
+
+    <RelativeLayout
+        android:id="@+id/layoutFullScreenPreview"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="#E6000000"
+        android:visibility="gone"
+        android:clickable="true"
+        android:focusable="true">
+
+        <ImageView
+            android:id="@+id/ivFullScreenImage"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:scaleType="fitCenter"
+            android:layout_above="@id/layoutPreviewBottomBar"
+            android:layout_margin="16dp" />
+
+        <LinearLayout
+            android:id="@+id/layoutPreviewBottomBar"
+            android:layout_width="match_parent"
+            android:layout_height="64dp"
+            android:layout_alignParentBottom="true"
+            android:background="#33000000"
+            android:gravity="center"
+            android:orientation="horizontal"
+            android:padding="8dp">
+
+            <Button
+                android:id="@+id/btnSaveToGallery"
+                android:layout_width="wrap_content"
+                android:layout_height="match_parent"
+                android:backgroundTint="#4CAF50"
+                android:text="💾 保存到手机相册"
+                android:textColor="#FFFFFF"
+                android:textStyle="bold"
+                android:layout_marginEnd="20dp" />
+
+            <Button
+                android:id="@+id/btnCloseFullScreen"
+                android:layout_width="wrap_content"
+                android:layout_height="match_parent"
+                android:backgroundTint="#E91E63"
+                android:text="✕ 关闭全屏预览"
+                android:textColor="#FFFFFF" />
+        </LinearLayout>
+    </RelativeLayout>
 </FrameLayout>

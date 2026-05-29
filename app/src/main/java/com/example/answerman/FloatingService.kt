@@ -23,6 +23,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.widget.Button
+import android.widget.ImageView
 import android.widget.TextView
 import androidx.core.app.NotificationCompat
 import java.io.ByteArrayOutputStream
@@ -51,6 +52,14 @@ class FloatingService : Service() {
     private var mImageReader: ImageReader? = null
     private var isChannelInitialized = false // 标记通道是否已经建立
     // =============================================================
+
+
+    // 🌟 新增：图片预览相关的全局引用
+    private var ivDebugPreview: ImageView? = null
+    private var lastCapturedBitmap: Bitmap? = null
+
+    private var layoutFullScreenPreview: View? = null
+    private var ivFullScreenImage: ImageView? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -98,6 +107,66 @@ class FloatingService : Service() {
         tvResultDisplay = floatingView?.findViewById<TextView>(R.id.tvResultDisplay)
         scrollResultContainer = floatingView?.findViewById<View>(R.id.scrollResultContainer)
         val layoutResizeHandle = floatingView?.findViewById<View>(R.id.layoutResizeHandle)
+
+        // 1. 绑定全屏预览组件引用
+        layoutFullScreenPreview = floatingView?.findViewById<View>(R.id.layoutFullScreenPreview)
+        ivFullScreenImage = floatingView?.findViewById<ImageView>(R.id.ivFullScreenImage)
+
+        val btnPreview = floatingView?.findViewById<Button>(R.id.btnPreviewCapture)
+        val btnSaveToGallery = floatingView?.findViewById<Button>(R.id.btnSaveToGallery)
+        val btnCloseFullScreen = floatingView?.findViewById<Button>(R.id.btnCloseFullScreen)
+
+        // 2. 🌟 点击“🖼️ 预览”按钮 -> 强制将整个悬浮窗撑满系统全屏幕
+        btnPreview?.setOnClickListener {
+            val bitmapToPreview = lastCapturedBitmap
+            if (bitmapToPreview != null && !bitmapToPreview.isRecycled) {
+                mainHandler.post {
+                    // 等比例填入大图
+                    ivFullScreenImage?.setImageBitmap(bitmapToPreview)
+
+                    // 【高能核心】：改写 Window 属性，强制让原本窄小的悬浮窗吞噬全屏
+                    layoutParams.width = WindowManager.LayoutParams.MATCH_PARENT
+                    layoutParams.height = WindowManager.LayoutParams.MATCH_PARENT
+                    // 暂时移除 FLAG_NOT_TOUCH_MODAL 以便能够点击全屏界面里的按钮
+                    layoutParams.flags = layoutParams.flags xor WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
+
+                    layoutFullScreenPreview?.visibility = View.VISIBLE
+                    windowManager.updateViewLayout(floatingView, layoutParams)
+                    android.util.Log.d("AnswerManDebug", "【UI】预览窗成功升级为全屏幕展示")
+                }
+            } else {
+                tvResultDisplay?.text = "💡 提示：本地缓存为空，请先成功截一张图再来预览"
+            }
+        }
+
+        // 3. 🌟 点击“✕ 关闭全屏预览” -> 还原悬浮窗原样
+        btnCloseFullScreen?.setOnClickListener {
+            mainHandler.post {
+                layoutFullScreenPreview?.visibility = View.GONE
+
+                // 恢复悬浮窗原本的自适应大小边界
+                layoutParams.width = WindowManager.LayoutParams.MATCH_PARENT // 或者你指定的固定宽度
+                layoutParams.height = WindowManager.LayoutParams.WRAP_CONTENT
+                layoutParams.flags = layoutParams.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
+
+                windowManager.updateViewLayout(floatingView, layoutParams)
+                android.util.Log.d("AnswerManDebug", "【UI】已关闭全屏预览，悬浮窗恢复自适应高度")
+            }
+        }
+
+        // 4. 🌟 点击“💾 保存到手机相册” -> 开启后台异步守护线程存盘
+        btnSaveToGallery?.setOnClickListener {
+            val bitmapToSave = lastCapturedBitmap
+            if (bitmapToSave != null && !bitmapToSave.isRecycled) {
+                tvResultDisplay?.text = "💾 正在努力保存至系统相册中..."
+                Thread {
+                    saveBitmapToGallery(bitmapToSave)
+                }.start()
+            } else {
+                tvResultDisplay?.text = "💡 提示：暂无可保存的有效原图"
+            }
+        }
+
 
         // 点击小悬浮球 -> 展开
         layoutBall?.setOnClickListener {
@@ -259,44 +328,68 @@ class FloatingService : Service() {
         triggerSilentCapture()
     }
 
-    // =================== 静默长流抓帧提取 ===================
     private fun triggerSilentCapture() {
-        val image = mImageReader?.acquireLatestImage()
-        if (image != null) {
-            var bitmap: Bitmap? = null
+        android.util.Log.d("AnswerManDebug", "==== 开始尝试终极抓帧 ====")
+
+        var latestImage: android.media.Image? = null
+        try {
+            while (true) {
+                val img = mImageReader?.acquireNextImage() ?: break
+                latestImage?.close()
+                latestImage = img
+            }
+        } catch (e: Exception) {}
+
+        if (latestImage == null) { latestImage = mImageReader?.acquireLatestImage() }
+
+        if (latestImage != null) {
+            val image = latestImage
             try {
                 val planes = image.planes
                 val buffer = planes[0].buffer
                 val pixelStride = planes[0].pixelStride
                 val rowStride = planes[0].rowStride
                 val rowPadding = rowStride - pixelStride * image.width
+                val bitmapWidth = image.width + (if (pixelStride > 0) rowPadding / pixelStride else 0)
 
-                bitmap = Bitmap.createBitmap(
-                    image.width + rowPadding / pixelStride,
-                    image.height,
-                    Bitmap.Config.ARGB_8888
-                )
-                bitmap.copyPixelsFromBuffer(buffer)
+                val rawBitmap = Bitmap.createBitmap(bitmapWidth, image.height, Bitmap.Config.ARGB_8888)
+                buffer.rewind()
+                rawBitmap.copyPixelsFromBuffer(buffer)
+
+                val cleanBitmap = if (rowPadding > 0) {
+                    Bitmap.createBitmap(rawBitmap, 0, 0, image.width, image.height)
+                } else { rawBitmap }
+                if (rowPadding > 0) rawBitmap.recycle()
+
+                // 🌟 改良：不裁剪正方形，克隆整张原图比例，但通过 ARGB_8888 浅拷贝保护内存
+                lastCapturedBitmap?.recycle()
+                lastCapturedBitmap = cleanBitmap.copy(Bitmap.Config.ARGB_8888, false)
+                android.util.Log.d("AnswerManDebug", "🎉 全屏无损图成功备份至 lastCapturedBitmap")
+
+                // 如果此时正开着全屏预览，实时冲刷画面
+                mainHandler.post {
+                    if (layoutFullScreenPreview?.visibility == View.VISIBLE) {
+                        ivFullScreenImage?.setImageBitmap(lastCapturedBitmap)
+                    }
+                }
 
                 layoutPanel?.visibility = View.VISIBLE
-                tvResultDisplay?.text = "🚀 正在无痕静默截屏，并调用 Gemini 引擎深度解析中..."
+                tvResultDisplay?.text = "🚀 真机数据提取成功！正在唤醒 Gemini..."
 
-                startGeminiAnalysis(bitmap)
+                try {
+                    startGeminiAnalysis(cleanBitmap)
+                } catch (geminiException: Exception) {
+                    android.util.Log.e("AnswerManDebug", "❌ startGeminiAnalysis 内部异常: ${geminiException.localizedMessage}")
+                }
 
             } catch (e: Exception) {
-                e.printStackTrace()
-                layoutPanel?.visibility = View.VISIBLE
-                tvResultDisplay?.text = "❌ 画面截取发生了异常: ${e.localizedMessage}"
+                android.util.Log.e("AnswerManDebug", "❌ 转换崩溃: ${e.localizedMessage}")
             } finally {
                 image.close()
             }
-        } else {
-            val nextImage = mImageReader?.acquireNextImage()
-            nextImage?.close()
-            layoutPanel?.visibility = View.VISIBLE
-            tvResultDisplay?.text = "💡 界面未发生实质变化，请点击屏幕任何地方再试一次"
         }
     }
+
 
     // =================== 标准树状 JSONObject 剥离解析（全量返回防截断） ===================
     private fun startGeminiAnalysis(bitmap: Bitmap) {
@@ -307,7 +400,7 @@ class FloatingService : Service() {
                 val bytes = outputStream.toByteArray()
                 val base64Data = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
 
-                val apiKey = "key"
+                val apiKey = "AQ.Ab8RN6Kd1kJo0Ceu_W-123"
                 val urlStr = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=$apiKey"
 
                 val jsonRequestBody = """
@@ -435,6 +528,41 @@ class FloatingService : Service() {
         releaseChannels()
         if (floatingView != null && floatingView?.parent != null) {
             try { windowManager.removeView(floatingView) } catch (e: Exception) { e.printStackTrace() }
+        }
+    }
+
+    // ================= 跨 Android 全版本兼容的无痕相册落地方法 =================
+    private fun saveBitmapToGallery(bitmap: Bitmap) {
+        android.util.Log.d("AnswerManDebug", "==== 开启异步后台线程落地相册 ====")
+        try {
+            val contentValues = android.content.ContentValues().apply {
+                put(android.provider.MediaStore.Images.Media.DISPLAY_NAME, "AnswerMan_Screen_${System.currentTimeMillis()}.jpg")
+                put(android.provider.MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+                // 物理落地到手机公共存储区的 Pictures/AnswerMan 目录下
+                put(android.provider.MediaStore.Images.Media.RELATIVE_PATH, "Pictures/AnswerMan")
+            }
+
+            val uri = contentResolver.insert(android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
+            if (uri != null) {
+                contentResolver.openOutputStream(uri).use { outputStream ->
+                    if (outputStream != null) {
+                        // 压缩率 95% 导出，既能保证肉眼极度清晰，又完美控制了文件体积
+                        bitmap.compress(Bitmap.CompressFormat.JPEG, 95, outputStream)
+
+                        mainHandler.post {
+                            tvResultDisplay?.text = "💾 成功！图片已保存至相册的【Pictures/AnswerMan】目录。"
+                        }
+                        android.util.Log.d("AnswerManDebug", "【相册落地】图片成功写入 MediaStore！")
+                    }
+                }
+            } else {
+                throw java.io.IOException("无法创建相册多媒体数据库记录")
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("AnswerManDebug", "❌ 相册写入抛出崩溃: ${e.localizedMessage}")
+            mainHandler.post {
+                tvResultDisplay?.text = "❌ 保存失败: ${e.getLocalizedMessage()}，请检查是否在设置中给予了存储权限"
+            }
         }
     }
 }
